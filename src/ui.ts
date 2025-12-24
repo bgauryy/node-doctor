@@ -182,7 +182,7 @@ function getSuggestedActions(
   _totalSize: number
 ): ActionSuggestion[] {
   const suggestions: ActionSuggestion[] = [];
-  const allInstallations = getAllInstallations(results, false);
+  const allInstallations = getAllInstallations(results, { includeNonDeletable: false });
 
   // Check for old Node.js versions
   const oldVersions = allInstallations.filter(inst => {

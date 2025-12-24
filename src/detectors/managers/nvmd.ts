@@ -28,7 +28,7 @@ export const nvmdDetector: DetectorConfig = {
     const versionsDir = path.join(baseDir, 'versions');
 
     const installations = discoverInstallations(versionsDir, {
-      executable: createExecutableGetter({ unix: 'bin/node', win32: 'node.exe' }),
+      executable: createExecutableGetter({ unix: 'bin/node', windows: 'node.exe' }),
       manager: 'nvmd',
     });
 

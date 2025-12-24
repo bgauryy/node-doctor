@@ -1218,3 +1218,151 @@ export interface ProjectHealthAssessment {
     failed: number;
   };
 }
+
+// ─────────────────────────────────────────────────────────────
+// Performance Metrics Types
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Memory usage snapshot
+ */
+export interface MemorySnapshot {
+  /** Resident Set Size - total memory allocated */
+  rss: number;
+  /** Total heap allocated */
+  heapTotal: number;
+  /** Heap actually used */
+  heapUsed: number;
+  /** External memory (C++ objects bound to JS) */
+  external: number;
+  /** ArrayBuffers memory */
+  arrayBuffers: number;
+}
+
+/**
+ * CPU usage snapshot
+ */
+export interface CpuSnapshot {
+  /** User CPU time in microseconds */
+  user: number;
+  /** System CPU time in microseconds */
+  system: number;
+  /** Combined CPU percentage (0-100+) */
+  percent: number;
+}
+
+/**
+ * Event loop metrics
+ */
+export interface EventLoopMetrics {
+  /** Event loop delay in milliseconds */
+  delay: number;
+  /** Event loop utilization (0-1) */
+  utilization: number;
+  /** Idle time percentage */
+  idlePercent: number;
+}
+
+/**
+ * Active handles/requests info
+ */
+export interface HandleMetrics {
+  /** Number of active handles */
+  activeHandles: number;
+  /** Number of active requests */
+  activeRequests: number;
+  /** Handle types breakdown */
+  handleTypes: Record<string, number>;
+}
+
+/**
+ * Single performance sample
+ */
+export interface PerformanceSample {
+  /** Sample timestamp */
+  timestamp: number;
+  /** Memory metrics */
+  memory: MemorySnapshot;
+  /** CPU metrics */
+  cpu: CpuSnapshot;
+  /** Event loop metrics */
+  eventLoop: EventLoopMetrics;
+  /** Handle metrics */
+  handles: HandleMetrics;
+}
+
+/**
+ * Performance analysis result
+ */
+export interface PerformanceAnalysis {
+  /** Analysis category */
+  category: 'cpu' | 'memory' | 'eventLoop' | 'handles';
+  /** Health status */
+  status: HealthCheckStatus;
+  /** Human-readable message */
+  message: string;
+  /** Current value */
+  value: number;
+  /** Threshold that triggered status */
+  threshold?: number;
+  /** Recommendation */
+  recommendation?: string;
+}
+
+/**
+ * Performance assessment summary
+ */
+export interface PerformanceSummary {
+  /** Assessment timestamp */
+  timestamp: string;
+  /** Sample duration in ms */
+  duration: number;
+  /** Number of samples collected */
+  sampleCount: number;
+  /** Overall status */
+  overallStatus: HealthCheckStatus;
+  /** Individual analyses */
+  analyses: PerformanceAnalysis[];
+  /** Average metrics */
+  averages: {
+    cpu: number;
+    memoryUsed: number;
+    memoryRss: number;
+    eventLoopDelay: number;
+    eventLoopUtilization: number;
+    activeHandles: number;
+  };
+  /** Peak metrics */
+  peaks: {
+    cpu: number;
+    memoryUsed: number;
+    memoryRss: number;
+    eventLoopDelay: number;
+  };
+  /** Raw samples (optional, for detailed view) */
+  samples?: PerformanceSample[];
+}
+
+/**
+ * Performance check configuration
+ */
+export interface PerformanceConfig {
+  /** Sample interval in ms */
+  sampleInterval: number;
+  /** Total duration to sample in ms */
+  duration: number;
+  /** Whether to include raw samples in output */
+  includeSamples: boolean;
+  /** CPU threshold for warning (percentage) */
+  cpuWarnThreshold: number;
+  /** CPU threshold for critical (percentage) */
+  cpuCriticalThreshold: number;
+  /** Memory threshold for warning (percentage of heap) */
+  memoryWarnThreshold: number;
+  /** Memory threshold for critical (percentage of heap) */
+  memoryCriticalThreshold: number;
+  /** Event loop delay threshold for warning (ms) */
+  delayWarnThreshold: number;
+  /** Event loop delay threshold for critical (ms) */
+  delayCriticalThreshold: number;
+}

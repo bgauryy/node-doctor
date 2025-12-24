@@ -51,6 +51,7 @@ export const nodebrewDetector: DetectorConfig = {
       versionsDir,
       installations,
       defaultVersion,
+      envVar: 'NODEBREW_ROOT',
     });
   },
 };

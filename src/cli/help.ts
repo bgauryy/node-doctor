@@ -73,6 +73,12 @@ export function showHelp(): void {
   console.log(`    ${dim('# Find all Node.js processes using ports')}`);
   console.log(`    ${c('cyan', '$')} node-doctor heal`);
   console.log();
+  console.log(`    ${dim('# Analyze performance metrics')}`);
+  console.log(`    ${c('cyan', '$')} node-doctor perf`);
+  console.log();
+  console.log(`    ${dim('# Interactive cleanup wizard')}`);
+  console.log(`    ${c('cyan', '$')} node-doctor cleanup`);
+  console.log();
 
   // More info
   console.log(bold('  MORE INFO'));
@@ -181,6 +187,15 @@ export function showCommandHelp(cmd: CLICommand): void {
     } else if (cmd.name === 'disk') {
       console.log(`    ${dim('# Show disk usage')}`);
       console.log(`    ${c('cyan', '$')} node-doctor disk`);
+    } else if (cmd.name === 'perf') {
+      console.log(`    ${dim('# Analyze performance metrics')}`);
+      console.log(`    ${c('cyan', '$')} node-doctor perf`);
+      console.log();
+      console.log(`    ${dim('# Instant snapshot')}`);
+      console.log(`    ${c('cyan', '$')} node-doctor perf --snapshot`);
+    } else if (cmd.name === 'cleanup') {
+      console.log(`    ${dim('# Launch interactive cleanup wizard')}`);
+      console.log(`    ${c('cyan', '$')} node-doctor cleanup`);
     }
     console.log();
   }

@@ -12,6 +12,7 @@ import { runDoctor, generateDoctorReport } from '../features/doctor.js';
 import { scanAll, getAllInstallations, detectors } from '../detectors/index.js';
 import { scanProjectVersionFiles, runProjectHealthAssessment, displayProjectHealth } from '../features/project.js';
 import { listGlobalPackages } from '../features/globals.js';
+import { runPerformanceAssessment, getPerformanceSnapshot, displayPerformanceSummary, displaySnapshot, formatAsJSON as formatPerfJSON } from '../features/performance.js';
 import { c, bold, dim } from '../colors.js';
 import { formatSize } from '../utils.js';
 import { loadInquirer } from '../prompts.js';
@@ -545,6 +546,157 @@ export const diskCommand: CLICommand = {
 };
 
 // ─────────────────────────────────────────────────────────────
+// Command: cleanup
+// ─────────────────────────────────────────────────────────────
+
+async function handleCleanup(_args: ParsedArgs): Promise<void> {
+  // Cleanup is interactive-only, launch interactive mode
+  const { loadInquirer } = await import('../prompts.js');
+  const { runCleanup } = await import('../features/cleanup.js');
+
+  await loadInquirer();
+
+  console.log();
+  console.log(`  ${c('cyan', '⏳')} Scanning for Node installations...`);
+
+  const results = scanAll();
+
+  await runCleanup(results);
+}
+
+export const cleanupCommand: CLICommand = {
+  name: 'cleanup',
+  aliases: ['clean', 'prune'],
+  description: 'Interactive cleanup of node_modules and Node.js versions',
+  usage: 'node-doctor cleanup',
+  examples: [
+    { cmd: 'node-doctor cleanup', desc: 'Launch interactive cleanup wizard' },
+  ],
+  detailedHelp: `
+${bold('DISK CLEANUP')}
+
+Interactive cleanup wizard to free disk space by removing:
+
+${c('cyan', '•')} ${bold('node_modules directories')} - Scan and bulk delete old node_modules
+    folders from your projects. Includes size visualization, age tracking,
+    and smart pre-selection of old & large directories.
+
+${c('cyan', '•')} ${bold('Node.js versions')} - Multi-select and delete unused Node.js
+    versions from your version managers (nvm, fnm, volta, etc.)
+
+${bold('FEATURES')}
+  - Multi-select with checkbox interface
+  - Visual size bars for easy identification of large items
+  - Sort by size, path, or last modified date
+  - Smart pre-selection of old versions (< Node 18)
+  - Batch deletion with progress feedback
+  - Confirmation before any destructive action
+
+${bold('INSPIRED BY')}
+  This feature is inspired by npkill's excellent UX for node_modules cleanup.
+`,
+  handler: handleCleanup,
+};
+
+// ─────────────────────────────────────────────────────────────
+// Command: perf (performance metrics)
+// ─────────────────────────────────────────────────────────────
+
+async function handlePerf(args: ParsedArgs): Promise<void> {
+  const jsonOutput = !!args.options['json'];
+  const snapshotMode = !!args.options['snapshot'];
+  const duration = parseInt(args.options['duration'] as string, 10) || 3000;
+  const interval = parseInt(args.options['interval'] as string, 10) || 100;
+  const includeSamples = !!args.options['samples'];
+
+  if (snapshotMode) {
+    // Instant snapshot mode
+    const snapshot = getPerformanceSnapshot();
+
+    if (jsonOutput) {
+      console.log(JSON.stringify(snapshot, null, 2));
+      return;
+    }
+
+    displaySnapshot(snapshot);
+    return;
+  }
+
+  // Full performance assessment
+  if (!jsonOutput) {
+    console.log();
+    console.log(`  ${c('cyan', '⏳')} Collecting performance metrics for ${duration / 1000}s...`);
+  }
+
+  const summary = await runPerformanceAssessment({
+    duration,
+    sampleInterval: interval,
+    includeSamples,
+  });
+
+  if (jsonOutput) {
+    console.log(formatPerfJSON(summary));
+    return;
+  }
+
+  displayPerformanceSummary(summary);
+}
+
+export const perfCommand: CLICommand = {
+  name: 'perf',
+  aliases: ['performance', 'metrics'],
+  description: 'Analyze Node.js process performance metrics',
+  usage: 'node-doctor perf [options]',
+  options: [
+    { long: '--json', description: 'Output results as JSON' },
+    { long: '--snapshot', short: '-s', description: 'Show instant snapshot instead of sampling' },
+    { long: '--duration', short: '-d', description: 'Sampling duration in ms (default: 3000)', hasValue: true },
+    { long: '--interval', short: '-i', description: 'Sample interval in ms (default: 100)', hasValue: true },
+    { long: '--samples', description: 'Include raw samples in JSON output' },
+  ],
+  examples: [
+    { cmd: 'node-doctor perf', desc: 'Run 3-second performance analysis' },
+    { cmd: 'node-doctor perf --snapshot', desc: 'Show instant performance snapshot' },
+    { cmd: 'node-doctor perf --duration 10000', desc: 'Run 10-second analysis' },
+    { cmd: 'node-doctor perf --json --samples', desc: 'Output detailed JSON with raw samples' },
+  ],
+  detailedHelp: `
+The perf command analyzes Node.js process performance metrics including:
+
+${bold('METRICS COLLECTED:')}
+  ${c('cyan', '•')} CPU Usage      - User and system CPU time, overall percentage
+  ${c('cyan', '•')} Memory         - RSS, heap total, heap used, external, array buffers
+  ${c('cyan', '•')} Event Loop     - Delay (lag), utilization percentage
+  ${c('cyan', '•')} Active Handles - Open handles, requests, and resource types
+
+${bold('ANALYSIS:')}
+  The tool analyzes collected samples and provides:
+  ${c('green', '✓')} Pass     - Metrics within healthy ranges
+  ${c('yellow', '⚠')} Warning  - Metrics approaching concerning levels
+  ${c('red', '✗')} Critical - Metrics indicating performance issues
+
+${bold('THRESHOLDS:')}
+  CPU:        Warning at 70%, Critical at 90%
+  Memory:     Warning at 70% heap, Critical at 85% heap
+  Event Loop: Warning at 50ms delay, Critical at 100ms delay
+
+${bold('RECOMMENDATIONS:')}
+  Based on the analysis, the tool suggests next steps:
+  - High CPU: Use clinic flame or 0x for CPU profiling
+  - High Memory: Use clinic heapprofiler for memory analysis
+  - Event Loop Lag: Use clinic bubbleprof for async analysis
+
+${bold('MODES:')}
+  Default mode samples the process over time (default 3 seconds).
+  Snapshot mode (--snapshot) provides an instant reading.
+
+${bold('INSPIRED BY:')}
+  This feature is inspired by clinic.js doctor approach to performance analysis.
+`,
+  handler: handlePerf,
+};
+
+// ─────────────────────────────────────────────────────────────
 // All Commands Registry
 // ─────────────────────────────────────────────────────────────
 
@@ -557,6 +709,8 @@ export const commands: CLICommand[] = [
   projectCommand,
   globalsCommand,
   diskCommand,
+  cleanupCommand,
+  perfCommand,
 ];
 
 /**

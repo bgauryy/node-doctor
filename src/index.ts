@@ -26,11 +26,12 @@ import { showDiskUsage } from './features/disk.js';
 import { showProjectVersionFiles } from './features/project.js';
 import { showGlobalPackages } from './features/globals.js';
 import { showPortExorcist } from './features/port-exorcist.js';
+import { runCleanup } from './features/cleanup.js';
 import { Spinner } from './spinner.js';
 import { runCLI } from './cli/index.js';
 import type { ScanResults } from './types/index.js';
 
-type MenuChoice = 'list' | 'doctor' | 'heal' | 'project' | 'globals' | 'disk' | 'refresh' | 'exit';
+type MenuChoice = 'list' | 'doctor' | 'heal' | 'cleanup' | 'project' | 'globals' | 'disk' | 'refresh' | 'exit';
 
 // ─────────────────────────────────────────────────────────────
 // Interactive Menu
@@ -56,6 +57,11 @@ async function showMainMenu(): Promise<MenuChoice> {
         name: '💀 Port Exorcist',
         value: 'heal',
         description: 'Find and kill Node.js processes blocking ports',
+      },
+      {
+        name: '🧹 Cleanup',
+        value: 'cleanup',
+        description: 'Delete node_modules and unused Node versions to free disk space',
       },
       {
         name: '📄 Scan project version files',
@@ -154,6 +160,10 @@ async function runInteractiveMode(): Promise<void> {
 
       case 'heal':
         await showPortExorcist();
+        break;
+
+      case 'cleanup':
+        results = await runCleanup(results);
         break;
 
       case 'disk':

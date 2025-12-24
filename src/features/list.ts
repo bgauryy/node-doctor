@@ -34,7 +34,7 @@ export async function listAllVersionsInteractive(results: ScanResults): Promise<
     console.log(c('cyan', '━'.repeat(66)));
     console.log();
 
-    const allInstallations = getAllInstallations(results, true);
+    const allInstallations = getAllInstallations(results, { includeNonDeletable: true });
 
     if (allInstallations.length === 0) {
       console.log(`  ${c('yellow', 'No Node versions found.')}`);

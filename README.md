@@ -14,8 +14,9 @@ Node Doctor unifies detection across 20+ version managers, identifies configurat
 *   **Process Management**: Instantly find and kill "zombie" Node.js processes blocking ports.
 *   **Universal Detection**: Works with 20+ version managers including `nvm`, `fnm`, `volta`, `asdf`, `mise`, `brew`, and system installs.
 *   **Security Audit**: Identifies End-of-Life (EOL) Node versions and verifies binary integrity against official checksums.
-*   **Disk Cleanup**: Visualizes disk usage per version and allows immediate removal of unused versions.
-*   **CI/CD Ready**: specialized `check` mode for automated pipelines with JSON output.
+*   **Performance Profiling**: Analyze CPU, memory, event loop, and active handles with clinic.js-inspired metrics.
+*   **Disk Cleanup**: Interactive wizard to bulk delete `node_modules` directories and unused Node.js versions.
+*   **CI/CD Ready**: Specialized `check` mode for automated pipelines with JSON output.
 
 ## Quick Start
 
@@ -48,6 +49,8 @@ For scripting or direct access, use the subcommands:
 | `project` | `scan`, `health` | Run project health check (version files, engines, lockfile). |
 | `globals` | `g` | List global packages installed via npm, yarn, or pnpm. |
 | `disk` | `du` | Show disk usage summary by version manager. |
+| `perf` | `performance`, `metrics` | Analyze CPU, memory, event loop, and active handles. |
+| `cleanup` | `clean`, `prune` | Interactive wizard to delete node_modules and Node versions. |
 | `check` | `ci` | Run non-interactive health checks (exit code 1 on failure). |
 
 > **Tip:** Most commands support `--json` for machine-readable output.
@@ -67,6 +70,16 @@ npx node-doctor kp 3000
 **Run in CI to verify environment health:**
 ```bash
 npx node-doctor check --json
+```
+
+**Analyze performance metrics:**
+```bash
+npx node-doctor perf
+```
+
+**Interactive cleanup wizard:**
+```bash
+npx node-doctor cleanup
 ```
 
 ---
@@ -202,6 +215,67 @@ Output includes:
 - `checks` - Array of individual check results
 - `summary` - Count of passed, warnings, and failed
 - `data` - Raw diagnostic data (system info, managers, registry, etc.)
+
+---
+
+## Performance Profiling
+
+Analyze your Node.js process performance with the `perf` command, inspired by [clinic.js](https://clinicjs.org/):
+
+```bash
+npx node-doctor perf
+```
+
+### Metrics Collected
+
+| Metric | Description |
+|:-------|:------------|
+| **CPU Usage** | User and system CPU time, overall percentage |
+| **Memory** | RSS, heap total, heap used, external, array buffers |
+| **Event Loop** | Delay (lag), utilization percentage |
+| **Active Handles** | Open handles, requests, and resource types |
+
+### Analysis Thresholds
+
+| Metric | Warning | Critical |
+|:-------|:--------|:---------|
+| CPU | > 70% | > 90% |
+| Memory (heap) | > 70% | > 85% |
+| Event Loop Delay | > 50ms | > 100ms |
+
+### Modes
+
+- **Sampling mode** (default): Collects samples over 3 seconds for trend analysis
+- **Snapshot mode** (`--snapshot`): Instant reading of current metrics
+
+```bash
+# 10-second analysis
+npx node-doctor perf --duration 10000
+
+# Instant snapshot
+npx node-doctor perf --snapshot
+
+# JSON output with raw samples
+npx node-doctor perf --json --samples
+```
+
+---
+
+## Disk Cleanup
+
+Interactive wizard to reclaim disk space:
+
+```bash
+npx node-doctor cleanup
+```
+
+### Features
+
+- **node_modules cleanup**: Scan and bulk delete old node_modules directories
+- **Node.js version cleanup**: Remove unused versions from version managers
+- **Visual size bars**: Easily identify large directories
+- **Smart pre-selection**: Automatically selects old versions (< Node 18)
+- **Sort options**: By size, path, or last modified date
 
 ---
 

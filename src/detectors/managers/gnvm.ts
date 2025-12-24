@@ -33,7 +33,7 @@ export const gnvmDetector: DetectorConfig = {
     // We'll try to look in typical locations.
     
     // Default to a likely location if env var is missing, though gnvm usually needs NODE_HOME
-    const baseDir = resolveBaseDir('GNVM_HOME') || resolveBaseDir('NODE_HOME') || path.join(HOME, 'AppData', 'Roaming', 'gnvm');
+    const baseDir = resolveBaseDir('GNVM_HOME', '') || resolveBaseDir('NODE_HOME', '') || path.join(HOME, 'AppData', 'Roaming', 'gnvm');
     
     // gnvm might not use a 'versions' subdir, but stores version folders in its root.
     // We scan the baseDir itself for versions? Or is there a specific folder?
@@ -41,7 +41,7 @@ export const gnvmDetector: DetectorConfig = {
     // It seems versions might be downloaded to folders named after version.
     
     const installations = discoverInstallations(baseDir, {
-      executable: createExecutableGetter({ win32: 'node.exe' }),
+      executable: createExecutableGetter({ windows: 'node.exe' }),
       manager: 'gnvm',
     });
 
