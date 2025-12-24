@@ -14,6 +14,7 @@ import { scanProjectVersionFiles, runProjectHealthAssessment, displayProjectHeal
 import { listGlobalPackages } from '../features/globals.js';
 import { c, bold, dim } from '../colors.js';
 import { formatSize } from '../utils.js';
+import { loadInquirer } from '../prompts.js';
 import type { Platform } from '../types/index.js';
 
 // ─────────────────────────────────────────────────────────────
@@ -216,6 +217,11 @@ async function handleInfo(args: ParsedArgs): Promise<void> {
     console.log(`  ${c('green', '✓')} Report saved to: ${bold(finalPath)}`);
     console.log();
     return;
+  }
+
+  // Load Inquirer for interactive mode
+  if (!jsonOutput) {
+    await loadInquirer();
   }
 
   await runDoctor(results, { json: jsonOutput });

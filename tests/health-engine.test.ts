@@ -61,6 +61,7 @@ function createTestHealthData(overrides: Partial<HealthData> = {}): HealthData {
     },
     portProcesses: [],
     shellConfigs: [],
+    duplicateVersions: [],
     ...overrides,
   };
 }
