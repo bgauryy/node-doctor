@@ -207,4 +207,4 @@ Output includes:
 
 ## License
 
-MIT © [Octocode](https://octocode.ai)
+MIT © [bgauryy](https://github.com/bgauryy)

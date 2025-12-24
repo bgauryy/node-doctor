@@ -46,6 +46,7 @@ function createTestHealthData(overrides: Partial<HealthData> = {}): HealthData {
       shell: '/bin/zsh',
       nodeVersion: 'v20.10.0',
       npmVersion: '10.2.0',
+      mnpmVersion: null,
       execPath: '/usr/local/bin/node',
     },
     nodesInPath: [],
@@ -58,10 +59,47 @@ function createTestHealthData(overrides: Partial<HealthData> = {}): HealthData {
     security: {
       eol: null,
       vulnerabilities: null,
+      tokens: [],
     },
     portProcesses: [],
     shellConfigs: [],
+    allShellConfigs: [],
+    packageManagers: {
+      npm: { version: '10.2.0', cache: { path: '/Users/test/.npm', size: 0 }, registry: null },
+      yarn: { version: null, cache: { path: null, size: 0 }, registry: null, registrySource: '' },
+      pnpm: { version: null, store: { path: null, size: 0 }, registry: null, registrySource: '' },
+      npx: { cache: { path: null, size: 0 } },
+    },
     duplicateVersions: [],
+    environmentVars: [],
+    globalPackages: {
+      npm: { count: 0, size: 0 },
+      yarn: { count: 0, size: 0 },
+      pnpm: { count: 0, size: 0 },
+      totalCount: 0,
+      totalSize: 0,
+      duplicates: [],
+    },
+    permissions: [],
+    corepack: {
+      installed: false,
+      version: null,
+      enabled: false,
+      managedManagers: [],
+      packageManagerField: null,
+    },
+    extendedChecks: {
+      npmPrefix: { prefix: null, activeManager: null, expectedPrefix: null, mismatch: false },
+      shellSlowStartup: { hasSlowPatterns: false, patterns: [] },
+      versionFileConflict: { hasConflict: false, files: [], distinctVersions: [] },
+      nodeGypReadiness: { ready: true, python: { available: true, version: null, path: null }, missing: [] },
+      npmCacheHealth: { path: null, size: 0, healthy: true, issues: [] },
+      globalNpmLocation: { npmRoot: null, activeManager: null, correctLocation: true, expectedLocation: null },
+      symlinkHealth: null,
+      staleNodeModules: { exists: false, builtWithVersion: null, currentVersion: 'v20.10.0', majorMismatch: false, recommendation: null },
+      ideIntegration: { hasVSCode: false, vscodeIssues: [], terminalInheritEnv: null, eslintNodePath: null },
+      enginesCheck: null,
+    },
     ...overrides,
   };
 }
@@ -87,6 +125,7 @@ function createManager(overrides: Partial<DetectedManager> = {}): DetectedManage
     baseDir: '/Users/test/.nvm',
     versionCount: 3,
     totalSize: 500 * 1024 * 1024,
+    installations: [],
     ...overrides,
   };
 }
@@ -303,7 +342,7 @@ describe('health-engine', () => {
         };
 
         const data = createTestHealthData({
-          security: { eol, vulnerabilities: null },
+          security: { eol, vulnerabilities: null, tokens: [] },
         });
 
         const checks = assessHealthChecks(data);
@@ -321,7 +360,7 @@ describe('health-engine', () => {
         };
 
         const data = createTestHealthData({
-          security: { eol, vulnerabilities: null },
+          security: { eol, vulnerabilities: null, tokens: [] },
         });
 
         const checks = assessHealthChecks(data);
@@ -340,7 +379,7 @@ describe('health-engine', () => {
         };
 
         const data = createTestHealthData({
-          security: { eol, vulnerabilities: null },
+          security: { eol, vulnerabilities: null, tokens: [] },
         });
 
         const checks = assessHealthChecks(data);
@@ -358,7 +397,7 @@ describe('health-engine', () => {
         };
 
         const data = createTestHealthData({
-          security: { eol, vulnerabilities: null },
+          security: { eol, vulnerabilities: null, tokens: [] },
         });
 
         const checks = assessHealthChecks(data);
@@ -371,7 +410,7 @@ describe('health-engine', () => {
 
       it('should warn when EOL data unavailable', () => {
         const data = createTestHealthData({
-          security: { eol: null, vulnerabilities: null },
+          security: { eol: null, vulnerabilities: null, tokens: [] },
         });
 
         const checks = assessHealthChecks(data);
@@ -390,7 +429,7 @@ describe('health-engine', () => {
         };
 
         const data = createTestHealthData({
-          security: { eol: null, vulnerabilities },
+          security: { eol: null, vulnerabilities, tokens: [] },
         });
 
         const checks = assessHealthChecks(data);
@@ -409,7 +448,7 @@ describe('health-engine', () => {
         };
 
         const data = createTestHealthData({
-          security: { eol: null, vulnerabilities },
+          security: { eol: null, vulnerabilities, tokens: [] },
         });
 
         const checks = assessHealthChecks(data);
@@ -424,7 +463,7 @@ describe('health-engine', () => {
 
       it('should warn when security data unavailable', () => {
         const data = createTestHealthData({
-          security: { eol: null, vulnerabilities: null },
+          security: { eol: null, vulnerabilities: null, tokens: [] },
         });
 
         const checks = assessHealthChecks(data);
@@ -494,7 +533,11 @@ describe('health-engine', () => {
         });
 
         const checks = assessHealthChecks(data);
-        const validCategories = ['path', 'managers', 'registry', 'security', 'ports'];
+        const validCategories = [
+          'path', 'managers', 'registry', 'security', 'ports',
+          'disk', 'environment', 'globals', 'permissions', 'corepack',
+          'configuration', 'shell', 'project', 'build', 'ide',
+        ];
 
         for (const check of checks) {
           expect(validCategories).toContain(check.category);

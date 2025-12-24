@@ -42,16 +42,8 @@
     "security",
     "path-conflict"
   ],
-  "author": "Octocode <https://octocode.ai>",
+  "author": "bgauryy",
   "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/octocode/node-doctor.git"
-  },
-  "homepage": "https://github.com/octocode/node-doctor#readme",
-  "bugs": {
-    "url": "https://github.com/octocode/node-doctor/issues"
-  },
   "dependencies": {
     "@inquirer/prompts": "^7.2.1"
   },
