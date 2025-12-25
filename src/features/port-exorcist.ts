@@ -12,7 +12,7 @@
 import { spawnSync } from 'node:child_process';
 import { c, bold, dim } from '../colors.js';
 import { clearScreen, isWindows } from '../utils.js';
-import { select, confirm } from '../prompts.js';
+import { select, confirm, BACK } from '../prompts.js';
 import { printHeader } from '../ui.js';
 import { Spinner } from '../spinner.js';
 
@@ -164,7 +164,9 @@ function findAllNodeProcessesUnix(): PortProcess[] {
         if (psResult.status === 0 && psResult.stdout) {
           fullCommand = psResult.stdout.trim();
         }
-      } catch {}
+      } catch {
+        // ps command failed - process may have exited
+      }
 
       // Try to get current working directory
       let cwd: string | undefined;
@@ -185,7 +187,9 @@ function findAllNodeProcessesUnix(): PortProcess[] {
             }
           }
         }
-      } catch {}
+      } catch {
+        // lsof cwd lookup failed - process may have restricted access
+      }
 
       processes.push({
         pid,
@@ -355,7 +359,9 @@ function findProcessOnPortUnix(port: number): PortScanResult {
       if (psResult.status === 0 && psResult.stdout) {
         fullCommand = psResult.stdout.trim();
       }
-    } catch {}
+    } catch {
+      // ps command failed - process may have exited
+    }
 
     return {
       port,
@@ -408,7 +414,9 @@ function findProcessOnPortWindows(port: number): PortScanResult {
               processName = taskMatch[1];
             }
           }
-        } catch {}
+        } catch {
+          // tasklist command failed - process may have exited
+        }
 
         return {
           port,
@@ -518,107 +526,110 @@ export function killProcessOnPort(port: number, force: boolean = false): {
  * Interactive Port Exorcist - Main Menu Entry
  */
 export async function showPortExorcist(): Promise<void> {
-  clearScreen();
-  printHeader();
+  while (true) {
+    clearScreen();
+    printHeader();
 
-  console.log(c('cyan', '━'.repeat(66)));
-  console.log(`  💀 ${bold('Port Exorcist')} - ${dim('Kill zombie Node.js processes')}`);
-  console.log(c('cyan', '━'.repeat(66)));
-  console.log();
-
-  const spinner = new Spinner('Scanning for Node.js processes using ports...').start();
-
-  // Small delay to show spinner
-  await new Promise(resolve => setTimeout(resolve, 100));
-
-  const nodeProcesses = findAllNodeProcesses();
-
-  if (nodeProcesses.length === 0) {
-    spinner.succeed('No Node.js processes found using ports');
-    console.log();
-    console.log(`  ${c('green', '✓')} ${bold('All clear!')} No Node.js processes are blocking any ports.`);
+    console.log(c('cyan', '━'.repeat(66)));
+    console.log(`  💀 ${bold('Port Exorcist')} - ${dim('Kill zombie Node.js processes')}`);
+    console.log(c('cyan', '━'.repeat(66)));
     console.log();
 
-    await select({
-      message: 'Press Enter to continue...',
-      choices: [{ name: '← Back to menu', value: 'back' }],
+    const spinner = new Spinner('Scanning for Node.js processes using ports...').start();
+
+    // Small delay to show spinner
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    const nodeProcesses = findAllNodeProcesses();
+
+    if (nodeProcesses.length === 0) {
+      spinner.succeed('No Node.js processes found using ports');
+      console.log();
+      console.log(`  ${c('green', '✓')} ${bold('All clear!')} No Node.js processes are blocking any ports.`);
+      console.log();
+      console.log(`  ${dim('Esc to go back')}`);
+
+      await select({
+        message: 'Press Enter to continue...',
+        choices: [{ name: '← Back to menu', value: 'back' }],
+        theme: { prefix: '  ' },
+      });
+      return;
+    }
+
+    spinner.succeed(`Found ${nodeProcesses.length} Node.js process${nodeProcesses.length > 1 ? 'es' : ''} using ports`);
+    console.log();
+    console.log(`  ${dim('Esc to go back')}`);
+
+    // Build choices for selection with path info integrated
+    const choices: Array<{ name: string; value: string; description?: string }> = [
+      ...nodeProcesses.map(proc => {
+        // Show cwd in description, falling back to command
+        let description = proc.cwd || proc.command?.substring(0, 60);
+        if (description && description.length > 60) {
+          description = '...' + description.slice(-57);
+        }
+        return {
+          name: `💀 Kill port ${proc.port} (${proc.name}, PID: ${proc.pid})`,
+          value: `pid:${proc.pid}`,
+          description: description ? `📁 ${description}` : undefined,
+        };
+      }),
+    ];
+
+    // Add "kill all" option if multiple processes
+    if (nodeProcesses.length > 1) {
+      choices.push({
+        name: `🔥 Kill ALL ${nodeProcesses.length} Node.js processes`,
+        value: 'all',
+        description: 'Terminate all listed processes',
+      });
+    }
+
+    choices.push({
+      name: '← Back to menu',
+      value: 'back',
+    });
+
+    const choice = await select({
+      message: 'Select a process to kill:',
+      choices,
+      pageSize: 12,
       theme: { prefix: '  ' },
     });
-    return;
-  }
 
-  spinner.succeed(`Found ${nodeProcesses.length} Node.js process${nodeProcesses.length > 1 ? 'es' : ''} using ports`);
-  console.log();
-
-  // Build choices for selection with path info integrated
-  const choices: Array<{ name: string; value: string; description?: string }> = [
-    ...nodeProcesses.map(proc => {
-      // Show cwd in description, falling back to command
-      let description = proc.cwd || proc.command?.substring(0, 60);
-      if (description && description.length > 60) {
-        description = '...' + description.slice(-57);
-      }
-      return {
-        name: `💀 Kill port ${proc.port} (${proc.name}, PID: ${proc.pid})`,
-        value: `pid:${proc.pid}`,
-        description: description ? `📁 ${description}` : undefined,
-      };
-    }),
-  ];
-
-  // Add "kill all" option if multiple processes
-  if (nodeProcesses.length > 1) {
-    choices.push({
-      name: `🔥 Kill ALL ${nodeProcesses.length} Node.js processes`,
-      value: 'all',
-      description: 'Terminate all listed processes',
-    });
-  }
-
-  choices.push({
-    name: '← Back to menu',
-    value: 'back',
-  });
-
-  const choice = await select({
-    message: 'Select a process to kill:',
-    choices,
-    pageSize: 12,
-    theme: { prefix: '  ' },
-  }) as string;
-
-  if (choice === 'back') {
-    return;
-  }
-
-  if (choice === 'all') {
-    // Kill all processes
-    const shouldKill = await confirm({
-      message: `Kill all ${nodeProcesses.length} Node.js processes?`,
-      default: false,
-    });
-
-    if (shouldKill) {
-      await killMultipleProcesses(nodeProcesses);
+    // Handle ESC or back
+    if (choice === BACK || choice === 'back') {
+      return;
     }
-  } else if (choice.startsWith('pid:')) {
-    // Kill single process by PID
-    const pid = parseInt(choice.replace('pid:', ''), 10);
-    const proc = nodeProcesses.find(p => p.pid === pid);
-    if (proc) {
+
+    if (choice === 'all') {
+      // Kill all processes
       const shouldKill = await confirm({
-        message: `Kill ${proc.name} on port ${proc.port} (PID: ${proc.pid})?`,
-        default: true,
+        message: `Kill all ${nodeProcesses.length} Node.js processes?`,
+        default: false,
       });
 
       if (shouldKill) {
-        await killSingleProcess(proc);
+        await killMultipleProcesses(nodeProcesses);
+      }
+    } else if ((choice as string).startsWith('pid:')) {
+      // Kill single process by PID
+      const pid = parseInt((choice as string).replace('pid:', ''), 10);
+      const proc = nodeProcesses.find(p => p.pid === pid);
+      if (proc) {
+        const shouldKill = await confirm({
+          message: `Kill ${proc.name} on port ${proc.port} (PID: ${proc.pid})?`,
+          default: true,
+        });
+
+        if (shouldKill) {
+          await killSingleProcess(proc);
+        }
       }
     }
+    // Loop continues to show updated state
   }
-
-  // Show again to see updated state
-  return showPortExorcist();
 }
 
 /**

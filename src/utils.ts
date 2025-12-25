@@ -12,8 +12,48 @@ export const isWindows: boolean = os.platform() === 'win32';
 export const isMac: boolean = os.platform() === 'darwin';
 export const HOME: string = os.homedir();
 
+/**
+ * Clear terminal screen properly using ANSI escape sequences.
+ * This clears the visible screen, scrollback buffer, and moves cursor to home.
+ * More reliable than console.clear() especially after inquirer prompts.
+ */
 export function clearScreen(): void {
-  console.clear();
+  if (process.stdout.isTTY) {
+    // ESC[2J  - Clear entire visible screen
+    // ESC[3J  - Clear scrollback buffer (prevents seeing old content when scrolling up)
+    // ESC[H   - Move cursor to home position (1,1)
+    process.stdout.write('\x1b[2J\x1b[3J\x1b[H');
+  } else {
+    // Fallback for non-TTY environments
+    console.clear();
+  }
+}
+
+/**
+ * Clear residual lines left by prompts (e.g., after inquirer interactions).
+ * Use this after a prompt to clean up any leftover artifacts.
+ * @param lines Number of lines to clear (default: 2)
+ */
+export function clearPromptResidue(lines: number = 2): void {
+  if (process.stdout.isTTY) {
+    for (let i = 0; i < lines; i++) {
+      // ESC[1A - Move cursor up one line
+      // ESC[2K - Clear entire line
+      process.stdout.write('\x1b[1A\x1b[2K');
+    }
+  }
+}
+
+/**
+ * Clear current line and move cursor to start.
+ * Useful for updating status lines in place.
+ */
+export function clearLine(): void {
+  if (process.stdout.isTTY) {
+    // ESC[2K - Clear entire line
+    // \r     - Carriage return (move to start of line)
+    process.stdout.write('\x1b[2K\r');
+  }
 }
 
 export function dirExists(dirPath: string): boolean {
@@ -65,7 +105,9 @@ export function getNodeVersion(nodePath: string): string | null {
     if (result.status === 0) {
       return result.stdout.trim();
     }
-  } catch {}
+  } catch {
+    // Node binary not found or failed to execute - expected for invalid paths
+  }
   return null;
 }
 
@@ -83,6 +125,7 @@ export async function getNodeVersionAsync(nodePath: string): Promise<string | nu
     const { stdout } = await execFileAsync(nodePath, ['--version'], { timeout: 5000 });
     return stdout.trim();
   } catch {
+    // Async exec failed - binary not found or timed out
     return null;
   }
 }
@@ -95,6 +138,7 @@ export function listSubdirs(dirPath: string): string[] {
       return dirExists(fullPath) && !name.startsWith('.');
     });
   } catch {
+    // Directory read failed - permission denied or path doesn't exist
     return [];
   }
 }
@@ -124,41 +168,60 @@ export function getDirSize(dirPath: string): number {
         size += stat.size;
       }
     }
-  } catch {}
+  } catch {
+    // Directory traversal failed - permission denied or deleted mid-scan
+  }
   return size;
 }
 
 /**
  * Async version of getDirSize - calculates directory size without blocking
  * @param dirPath - Path to the directory
- * @returns Promise resolving to total size in bytes
+ * @param shouldStop - Optional callback to check if operation should be cancelled
+ * @returns Promise resolving to total size in bytes (0 if stopped)
  */
-export async function getDirSizeAsync(dirPath: string): Promise<number> {
+export async function getDirSizeAsync(
+  dirPath: string,
+  shouldStop?: () => boolean
+): Promise<number> {
   let size = 0;
   try {
+    // Check if we should stop before starting
+    if (shouldStop?.()) return 0;
+
     const items = await fs.promises.readdir(dirPath);
+    
+    // Check again after reading directory
+    if (shouldStop?.()) return 0;
+
     const stats = await Promise.all(
       items.map(async (item) => {
         const fullPath = path.join(dirPath, item);
         try {
           return { path: fullPath, stat: await fs.promises.lstat(fullPath) };
         } catch {
+          // Individual file stat failed - skip this entry
           return null;
         }
       })
     );
 
     for (const entry of stats) {
+      // Check for stop in the loop
+      if (shouldStop?.()) return size;
+      
       if (!entry) continue;
       const { path: itemPath, stat } = entry;
       if (stat.isSymbolicLink()) continue;
       if (stat.isDirectory()) {
-        size += await getDirSizeAsync(itemPath);
+        size += await getDirSizeAsync(itemPath, shouldStop);
       } else {
         size += stat.size;
       }
     }
-  } catch {}
+  } catch {
+    // Async directory traversal failed - permission denied or deleted mid-scan
+  }
   return size;
 }
 
@@ -245,7 +308,9 @@ export function readFileContent(filePath: string): string | null {
     if (fileExists(filePath)) {
       return fs.readFileSync(filePath, 'utf8');
     }
-  } catch {}
+  } catch {
+    // File read failed - permission denied or encoding issue
+  }
   return null;
 }
 

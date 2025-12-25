@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { c, bold, dim } from '../colors.js';
 import { clearScreen, formatSize, getDirSizeAsync, HOME } from '../utils.js';
-import { select, checkbox, confirm, Separator } from '../prompts.js';
+import { select, checkbox, confirm, Separator, BACK } from '../prompts.js';
 import { getAllInstallations, scanAll } from '../detectors/index.js';
 import { printHeader } from '../ui.js';
 import type { ScanResults, AggregatedInstallation } from '../types/index.js';
@@ -42,37 +42,55 @@ type SortMode = 'size' | 'path' | 'modified';
 // node_modules Scanner
 // ═══════════════════════════════════════════════════════════════════════════
 
+// Memory safety limits for directory scanning
+const MAX_VISITED_PATHS = 50000; // Prevent unbounded Set growth
+const MAX_FOUND_ENTRIES = 1000; // Limit results to prevent memory issues
+
 /**
  * Recursively find all node_modules directories starting from a root path
+ * Returns true if completed, false if stopped
  */
 async function findNodeModules(
   rootPath: string,
   onFound: (entry: NodeModulesEntry) => void,
+  shouldStop: () => boolean,
   maxDepth: number = 10
-): Promise<void> {
+): Promise<boolean> {
   const visited = new Set<string>();
+  let foundCount = 0;
 
-  async function scan(dirPath: string, depth: number): Promise<void> {
-    if (depth > maxDepth) return;
+  async function scan(dirPath: string, depth: number): Promise<boolean> {
+    if (shouldStop()) return false;
+    if (depth > maxDepth) return true;
+
+    // Memory guard: stop if we've visited too many paths
+    if (visited.size >= MAX_VISITED_PATHS) return true;
+
+    // Memory guard: stop if we've found enough entries
+    if (foundCount >= MAX_FOUND_ENTRIES) return true;
 
     // Resolve real path to handle symlinks
     let realPath: string;
     try {
       realPath = fs.realpathSync(dirPath);
-      if (visited.has(realPath)) return;
+      if (visited.has(realPath)) return true;
       visited.add(realPath);
     } catch {
-      return;
+      // Path resolution failed - permission denied or broken symlink
+      return true;
     }
 
     let entries: fs.Dirent[];
     try {
       entries = fs.readdirSync(dirPath, { withFileTypes: true });
     } catch {
-      return;
+      // Directory read failed - permission denied or deleted
+      return true;
     }
 
     for (const entry of entries) {
+      if (shouldStop()) return false;
+
       // Skip hidden directories and common non-project dirs
       if (entry.name.startsWith('.')) continue;
       if (['Library', 'Applications', 'Pictures', 'Music', 'Movies', 'Public'].includes(entry.name)) continue;
@@ -86,12 +104,16 @@ async function findNodeModules(
         const stat = fs.lstatSync(fullPath);
         if (stat.isSymbolicLink()) continue;
       } catch {
+        // Stat failed - permission denied or deleted mid-scan
         continue;
       }
 
       if (entry.name === 'node_modules') {
         // Found a node_modules directory
         try {
+          // Check stop before expensive size calculation
+          if (shouldStop()) return false;
+
           const stat = fs.statSync(fullPath);
           const projectDir = path.dirname(fullPath);
           const projectName = path.basename(projectDir);
@@ -102,9 +124,13 @@ async function findNodeModules(
             (Date.now() - lastModified.getTime()) / (1000 * 60 * 60 * 24)
           );
 
-          // Calculate size asynchronously
-          const size = await getDirSizeAsync(fullPath);
+          // Calculate size asynchronously - pass shouldStop so it can be interrupted
+          const size = await getDirSizeAsync(fullPath, shouldStop);
 
+          // Don't report if stopped mid-calculation
+          if (shouldStop()) return false;
+
+          foundCount++;
           onFound({
             path: fullPath,
             size,
@@ -113,18 +139,21 @@ async function findNodeModules(
             daysSinceModified,
           });
         } catch {
-          // Skip if we can't stat
+          // Skip if we can't stat - permission denied or deleted
         }
         // Don't descend into node_modules
         continue;
       }
 
       // Recurse into subdirectory
-      await scan(fullPath, depth + 1);
+      const completed = await scan(fullPath, depth + 1);
+      if (!completed) return false;
     }
+
+    return true;
   }
 
-  await scan(rootPath, 0);
+  return scan(rootPath, 0);
 }
 
 /**
@@ -233,6 +262,7 @@ export async function runCleanup(results: ScanResults): Promise<ScanResults> {
     console.log(`  🧹 ${bold('Disk Cleanup')} ${dim('- Free up space by removing unused files')}`);
     console.log(c('cyan', '━'.repeat(66)));
     console.log();
+    console.log(`  ${dim('Esc to go back')}`);
 
     const action = await select({
       message: 'What would you like to clean up?',
@@ -265,9 +295,10 @@ export async function runCleanup(results: ScanResults): Promise<ScanResults> {
           message: (text: string) => bold(text),
         },
       },
-    }) as string;
+    });
 
-    if (action === 'back') {
+    // Handle ESC or back
+    if (action === BACK || action === 'back') {
       return results;
     }
 
@@ -361,6 +392,7 @@ async function cleanupNodeModules(): Promise<void> {
 
   // Ask where to scan
   const scanPaths = getDefaultScanPaths();
+  console.log(`  ${dim('Esc to go back')}`);
 
   const scanChoice = await select({
     message: 'Where should I scan for node_modules?',
@@ -389,44 +421,97 @@ async function cleanupNodeModules(): Promise<void> {
         message: (text: string) => bold(text),
       },
     },
-  }) as string;
+  });
 
-  if (scanChoice === 'cancel') {
+  // Handle ESC or cancel
+  if (scanChoice === BACK || scanChoice === 'cancel') {
     return;
   }
 
-  const pathsToScan = scanChoice === 'all' ? scanPaths : [scanChoice];
+  const pathsToScan = scanChoice === 'all' ? scanPaths : [scanChoice as string];
 
   console.log();
   console.log(`  ${c('cyan', '⏳')} Scanning for node_modules...`);
-  console.log(`  ${dim('This may take a moment depending on the size of your directories.')}`);
+  console.log(`  ${dim('Press')} ${bold('Enter')} ${dim('to stop scanning')}`);
   console.log();
 
   const found: NodeModulesEntry[] = [];
   let totalSize = 0;
+  let stopped = false;
+
+  // Setup keypress listener to stop scan
+  const stdin = process.stdin;
+  const wasRaw = stdin.isRaw;
+  if (stdin.isTTY) {
+    stdin.setRawMode(true);
+    stdin.resume();
+  }
+
+  const onKeypress = (key: Buffer) => {
+    // Enter key (carriage return or newline)
+    if (key[0] === 13 || key[0] === 10) {
+      stopped = true;
+    }
+    // Ctrl+C
+    if (key[0] === 3) {
+      stopped = true;
+    }
+  };
+
+  stdin.on('data', onKeypress);
+
+  const cleanup = () => {
+    stdin.removeListener('data', onKeypress);
+    if (stdin.isTTY) {
+      stdin.setRawMode(wasRaw ?? false);
+    }
+  };
 
   // Scan for node_modules with live feedback
   for (const scanPath of pathsToScan) {
+    if (stopped) break;
+
     process.stdout.write(`  ${dim('Scanning:')} ${scanPath.replace(HOME, '~')}...`);
 
-    await findNodeModules(scanPath, (entry) => {
-      found.push(entry);
-      totalSize += entry.size;
+    const completed = await findNodeModules(
+      scanPath,
+      (entry) => {
+        found.push(entry);
+        totalSize += entry.size;
 
-      // Live feedback
-      process.stdout.write(
-        `\r  ${c('green', '✓')} Found ${bold(String(found.length))} node_modules (${formatSize(totalSize)})    `
-      );
-    });
+        // Live feedback
+        process.stdout.write(
+          `\r  ${c('green', '✓')} Found ${bold(String(found.length))} node_modules (${formatSize(totalSize)})    `
+        );
+      },
+      () => stopped
+    );
 
     process.stdout.write('\n');
+
+    if (!completed) break;
   }
 
+  cleanup();
+
+  // Clear screen before showing results - removes scanning artifacts
+  clearScreen();
+  printHeader();
+
+  console.log(c('cyan', '━'.repeat(66)));
+  console.log(`  📦 ${bold('node_modules Cleanup')} - ${dim('Results')}`);
+  console.log(c('cyan', '━'.repeat(66)));
   console.log();
+
+  if (stopped) {
+    console.log(`  ${c('yellow', '⏹')} Scan stopped by user`);
+    console.log();
+  }
 
   if (found.length === 0) {
     console.log(`  ${c('yellow', 'No node_modules directories found.')}`);
     console.log();
+    console.log(`  ${dim('Esc to go back')}`);
     await select({
       message: 'Press Enter to continue...',
       choices: [{ name: '← Back', value: 'back' }],
@@ -438,21 +523,28 @@ async function cleanupNodeModules(): Promise<void> {
   // Sort by size (largest first)
   found.sort((a, b) => b.size - a.size);
 
-  console.log(c('cyan', '━'.repeat(66)));
-  console.log(`  Found ${bold(String(found.length))} node_modules directories (${bold(formatSize(totalSize))} total)`);
-  console.log(c('cyan', '━'.repeat(66)));
+  console.log(`  ${c('green', '✓')} Found ${bold(String(found.length))} node_modules directories (${bold(formatSize(totalSize))} total)`);
   console.log();
 
   // Ask for sort preference
+  console.log(`  ${dim('Esc to go back')}`);
+
   const sortMode = await select({
     message: 'How would you like to sort the results?',
     choices: [
       { name: '📊 By size (largest first)', value: 'size' },
       { name: '📅 By age (oldest first)', value: 'modified' },
       { name: '📁 By path (alphabetical)', value: 'path' },
+      new Separator(),
+      { name: '← Go back', value: 'back' },
     ],
     theme: { prefix: '  ' },
-  }) as SortMode;
+  });
+
+  // Handle ESC or back option
+  if (sortMode === BACK || sortMode === 'back') {
+    return;
+  }
 
   // Re-sort based on preference
   if (sortMode === 'modified') {
@@ -483,8 +575,8 @@ async function cleanupNodeModules(): Promise<void> {
   });
 
   console.log();
-  console.log(`  ${dim('Use Space to toggle, A to select all, Enter to confirm')}`);
-  console.log(`  ${dim('Tip: Old & large (>50MB, >30 days) are pre-selected')}`);
+  console.log(`  ${dim('Controls:')} ${bold('Space')} toggle  ${bold('i')} invert  ${bold('Esc')} cancel  ${bold('Enter')} confirm`);
+  console.log(`  ${dim('Pre-selected: Old (>30 days) AND large (>50MB)')}`);
   console.log();
 
   const selected = await checkbox<string>({
@@ -492,6 +584,7 @@ async function cleanupNodeModules(): Promise<void> {
     choices,
     pageSize: 15,
     loop: false,
+    required: false,
     theme: {
       prefix: '  ',
       icon: {
@@ -503,6 +596,7 @@ async function cleanupNodeModules(): Promise<void> {
         highlight: (text: string) => c('cyan', text),
         message: (text: string) => bold(text),
       },
+      helpMode: 'never',
     },
   });
 
@@ -612,8 +706,6 @@ async function cleanupNodeVersions(results: ScanResults): Promise<ScanResults> {
 
   console.log(`  Found ${bold(String(allInstallations.length))} deletable versions (${bold(formatSize(totalSize))} total)`);
   console.log();
-  console.log(`  ${dim('Use Space to toggle, A to select all, Enter to confirm')}`);
-  console.log();
 
   // Build choices with visual size bars
   const choices = allInstallations.map((inst) => {
@@ -621,22 +713,27 @@ async function cleanupNodeVersions(results: ScanResults): Promise<ScanResults> {
     const sizeBar = createSizeBar(inst.size || 0, maxSize, 15);
     const sizeStr = formatSize(inst.size || 0).padStart(9);
 
-    // Identify old versions
+    // Identify old versions (EOL)
     const major = parseInt((inst.version || '').replace(/^v/, '').split('.')[0], 10);
     const isOld = !isNaN(major) && major < 18;
 
     return {
-      name: `${sizeBar} ${bold(sizeStr)} ${inst.detectorIcon} ${bold(version)} ${dim(`(${inst.detectorDisplayName})`)}${isOld ? c('yellow', ' [OLD]') : ''}`,
+      name: `${sizeBar} ${bold(sizeStr)} ${inst.detectorIcon} ${bold(version)} ${dim(`(${inst.detectorDisplayName})`)}${isOld ? c('yellow', ' [EOL]') : ''}`,
       value: inst.path,
-      checked: isOld, // Auto-select old versions
+      checked: false, // Don't auto-select - let user choose explicitly
     };
   });
+
+  console.log(`  ${dim('Controls:')} ${bold('Space')} toggle  ${bold('i')} invert  ${bold('Esc')} cancel  ${bold('Enter')} confirm`);
+  console.log(`  ${dim('[EOL] = End-of-Life versions (< Node 18)')}`);
+  console.log();
 
   const selected = await checkbox<string>({
     message: 'Select versions to delete:',
     choices,
     pageSize: 12,
     loop: false,
+    required: false,
     theme: {
       prefix: '  ',
       icon: {
@@ -648,6 +745,7 @@ async function cleanupNodeVersions(results: ScanResults): Promise<ScanResults> {
         highlight: (text: string) => c('cyan', text),
         message: (text: string) => bold(text),
       },
+      helpMode: 'never',
     },
   });
 

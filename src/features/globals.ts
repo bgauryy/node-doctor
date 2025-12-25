@@ -6,7 +6,7 @@
 import path from 'node:path';
 import { runCommand, clearScreen, getDirSize, formatSize, dirExists } from '../utils.js';
 import { c, bold, dim } from '../colors.js';
-import { select, search } from '../prompts.js';
+import { select, search, BACK } from '../prompts.js';
 import { printHeader } from '../ui.js';
 import type { GlobalPackage, GlobalPackagesResult } from '../types/index.js';
 
@@ -80,7 +80,9 @@ export function listGlobalPackages(): GlobalPackagesResult {
         });
       }
     }
-  } catch {}
+  } catch {
+    // npm command failed - npm not installed or not in PATH
+  }
 
   // 2. Yarn Globals (Classic)
   try {
@@ -116,7 +118,9 @@ export function listGlobalPackages(): GlobalPackagesResult {
         }
       }
     }
-  } catch {}
+  } catch {
+    // yarn command failed - yarn not installed or not in PATH
+  }
 
   // 3. pnpm Globals
   try {
@@ -158,7 +162,9 @@ export function listGlobalPackages(): GlobalPackagesResult {
         });
       }
     }
-  } catch {}
+  } catch {
+    // pnpm command failed - pnpm not installed or not in PATH
+  }
 
   return globals;
 }
@@ -248,48 +254,60 @@ export async function showGlobalPackages(): Promise<void> {
     }
 
     console.log(`  ${dim('Type to search packages, or press Enter to browse')}`);
+    console.log(`  ${dim('Esc to go back')}`);
     console.log();
 
-    // Use search prompt for type-to-filter functionality
-    const selection = await search({
-      message: 'Search packages:',
-      pageSize: 15,
-      source: async (term: string | undefined) => {
-        const searchTerm = (term || '').toLowerCase();
-        
-        // Always include back option at top
-        const results: Array<{ name: string; value: string | GlobalPackage }> = [
-          { name: `${c('yellow', '←')} Back to menu`, value: 'back' }
-        ];
-        
-        // Filter packages based on search term
-        const filtered = searchTerm 
-          ? flatPackages.filter(pkg => 
-              pkg.name.toLowerCase().includes(searchTerm) ||
-              pkg.manager.toLowerCase().includes(searchTerm)
-            )
-          : flatPackages;
-        
-        for (const pkg of filtered) {
-          const managerColor = pkg.manager === 'npm' ? 'green' : pkg.manager === 'yarn' ? 'blue' : 'yellow';
-          const marker = c(managerColor, '●');
-          const sizeStr = pkg.size ? dim(` (${formatSize(pkg.size)})`) : '';
+    let selection: string | GlobalPackage | typeof BACK;
+    try {
+      // Use search prompt for type-to-filter functionality
+      selection = await search({
+        message: 'Search packages:',
+        pageSize: 15,
+        source: async (term: string | undefined) => {
+          const searchTerm = (term || '').toLowerCase();
           
-          results.push({
-            name: `${marker} ${pkg.name} ${dim('@')} ${pkg.version}${sizeStr}`,
-            value: pkg
-          });
-        }
-        
-        return results;
-      },
-      theme: {
-        prefix: '  ',
-        style: { highlight: (text: string) => c('cyan', text) }
-      },
-    });
+          // Always include back option at top
+          const searchResults: Array<{ name: string; value: string | GlobalPackage }> = [
+            { name: `${c('yellow', '←')} Back to menu`, value: 'back' }
+          ];
+          
+          // Filter packages based on search term
+          const filtered = searchTerm 
+            ? flatPackages.filter(pkg => 
+                pkg.name.toLowerCase().includes(searchTerm) ||
+                pkg.manager.toLowerCase().includes(searchTerm)
+              )
+            : flatPackages;
+          
+          for (const pkg of filtered) {
+            const managerColor = pkg.manager === 'npm' ? 'green' : pkg.manager === 'yarn' ? 'blue' : 'yellow';
+            const marker = c(managerColor, '●');
+            const sizeStr = pkg.size ? dim(` (${formatSize(pkg.size)})`) : '';
+            
+            searchResults.push({
+              name: `${marker} ${pkg.name} ${dim('@')} ${pkg.version}${sizeStr}`,
+              value: pkg
+            });
+          }
+          
+          return searchResults;
+        },
+        theme: {
+          prefix: '  ',
+          style: { highlight: (text: string) => c('cyan', text) }
+        },
+      });
+    } catch (err) {
+      // Handle ESC/Ctrl+C
+      if (err && typeof err === 'object' && 'name' in err && 
+          (err.name === 'ExitPromptError' || err.name === 'AbortPromptError' || err.name === 'CancelPromptError')) {
+        return;
+      }
+      throw err;
+    }
 
-    if (selection === 'back') {
+    // Handle ESC or back
+    if (selection === BACK || selection === 'back') {
       return;
     }
 

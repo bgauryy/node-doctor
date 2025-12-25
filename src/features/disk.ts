@@ -72,6 +72,7 @@ export async function showDiskUsage(results: ScanResults): Promise<void> {
   console.log(`  ${bold('Total:')} ${c('green', formatSize(grandTotal))}`);
   console.log(c('cyan', '━'.repeat(66)));
   console.log();
+  console.log(`  ${dim('Esc to go back')}`);
 
   await select({
     message: 'Press Enter to continue...',

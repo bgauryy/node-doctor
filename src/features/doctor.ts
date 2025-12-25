@@ -4,13 +4,12 @@
  */
 
 import { c, bold, dim } from '../colors.js';
-import { clearScreen, openFile, formatSize } from '../utils.js';
-import { select, Separator, type SeparatorInstance } from '../prompts.js';
+import { clearScreen, formatSize } from '../utils.js';
+import { select, BACK } from '../prompts.js';
 import { printHeader } from '../ui.js';
 import { getSourceLabel } from './registry.js';
 import { runHealthAssessment, formatAsJSON } from './health-engine.js';
 import { scanAll } from '../detectors/index.js';
-import { getPerformanceSnapshot } from './performance.js';
 import type {
   ScanResults,
   HealthAssessment,
@@ -28,7 +27,6 @@ import type {
   NodeConfigEntry,
   ExtendedHealthChecks,
   HealthCheck,
-  PerformanceSample,
 } from '../types/index.js';
 
 // ═══════════════════════════════════════════════════════════════
@@ -90,9 +88,7 @@ function getHealthBannerFromAssessment(assessment: HealthAssessment): HealthBann
 }
 
 interface MenuChoice {
-  type: 'config' | 'back' | 'refresh';
-  path?: string;
-  name?: string;
+  type: 'back' | 'refresh';
 }
 
 interface DoctorOptions {
@@ -145,48 +141,37 @@ export async function runDoctor(initialResults: ScanResults, options?: DoctorOpt
     displayDoctorUI(assessment);
 
     // ═══════════════════════════════════════════════════════════════════
-    // MENU: Shell Configs (combined display + action)
+    // Simple Menu: Refresh or Exit
     // ═══════════════════════════════════════════════════════════════════
-    const choices: Array<SeparatorInstance | { name: string; value: MenuChoice }> = [];
-    const configsAdded = new Set<string>();
+    console.log(`  ${dim('Esc to go back')}`);
+    console.log();
 
-    // Collect unique config files from aggregated configs
-    for (const conf of assessment.data.shellConfigs) {
-      if (!configsAdded.has(conf.path)) {
-        const managers = conf.managers.filter(
-          (m: string) => !['node', 'npm', 'yarn', 'pnpm', 'corepack'].includes(m)
-        );
-        if (managers.length > 0) {
-          // Show config with manager info inline
-          choices.push({
-            name: `📄 ${conf.name} ${dim(`→ ${managers.join(', ')}`)}`,
-            value: { type: 'config', path: conf.path, name: conf.name },
-          });
-          configsAdded.add(conf.path);
-        }
+    // Ensure stdout is flushed before prompt renders
+    // This prevents partial display issues with long output
+    await new Promise<void>(resolve => {
+      if (process.stdout.write('')) {
+        resolve();
+      } else {
+        process.stdout.once('drain', resolve);
       }
-    }
-
-    if (choices.length > 0) {
-      choices.unshift(new Separator(dim('  ─── Shell Configs (select to edit) ───')));
-    }
-
-    choices.push(new Separator());
-    choices.push({ name: '🔄 Refresh info', value: { type: 'refresh' } });
-    choices.push({ name: '🚪 Exit', value: { type: 'back' } });
+    });
 
     const choice = (await select({
-      message: choices.length > 2 ? 'Select action:' : 'Continue:',
-      choices,
-      pageSize: 15,
+      message: 'Select action:',
+      choices: [
+        { name: '🔄 Refresh info', value: { type: 'refresh' } },
+        { name: '🚪 Back to menu', value: { type: 'back' } },
+      ],
+      pageSize: 10,
       loop: false,
       theme: {
         prefix: '  ',
         style: { highlight: (text: string) => c('cyan', text) },
       },
-    })) as MenuChoice;
+    })) as MenuChoice | typeof BACK;
 
-    if (choice.type === 'back') {
+    // Handle ESC or back
+    if (choice === BACK || (choice as MenuChoice).type === 'back') {
       return;
     }
 
@@ -196,36 +181,6 @@ export async function runDoctor(initialResults: ScanResults, options?: DoctorOpt
       results = scanAll();
       assessment = await runHealthAssessment(results);
       continue;
-    }
-
-    if (choice.type === 'config' && 'path' in choice) {
-      console.log();
-      console.log(`  ${c('cyan', '⏳')} Opening ${choice.path}...`);
-      if (openFile(choice.path!)) {
-        console.log(`  ${c('green', '✓')} Opened in your default editor`);
-        console.log();
-        // Give user choice after opening file
-        const nextAction = await select({
-          message: 'What next?',
-          choices: [
-            { name: '🔄 Refresh info', value: 'refresh' },
-            { name: '← Return to doctor', value: 'back' },
-          ],
-          theme: { prefix: '  ' },
-        });
-        
-        if (nextAction === 'refresh') {
-             console.log();
-             console.log(`  ${c('cyan', '⏳')} Refreshing data...`);
-             results = scanAll();
-             assessment = await runHealthAssessment(results);
-             continue;
-        }
-        // If back, loop continues and reprints doctor info without refresh
-      } else {
-        console.log(`  ${c('red', '✗')} Failed to open`);
-        await new Promise(r => setTimeout(r, 1500));
-      }
     }
   }
 }
@@ -243,19 +198,16 @@ function displayDoctorUI(assessment: HealthAssessment): void {
   // Section 1: System (from data.system)
   displaySystemSection(data.system);
 
-  // Section 2: Performance Snapshot (NEW)
-  displayPerformanceSection();
-
-  // Section 3: Managers (from data.managers)
+  // Section 2: Managers (from data.managers)
   displayManagersSection(data.managers, data.activeManagers);
 
   // Section 3: PATH Priority (from data.nodesInPath)
   displayPathSection(data.nodesInPath);
 
-  // Section 4: Security (NEW - prominent display)
+  // Section 4: Security (prominent display)
   displaySecuritySection(data.security, checks, data.system.nodeVersion);
 
-  // Section 5: Port Status (NEW - merged from health checks)
+  // Section 5: Port Status (merged from health checks)
   displayPortSection(data.portProcesses);
 
   // Section 6: Registry (from data.registry)
@@ -284,7 +236,7 @@ function displayDoctorUI(assessment: HealthAssessment): void {
   // Section 13: Shell Config Files (informational)
   displayShellConfigsSection(data.allShellConfigs, data.shellConfigs);
 
-  // Section 14: Extended Health Checks (NEW)
+  // Section 14: Extended Health Checks
   displayExtendedChecksSection(data.extendedChecks, checks);
 
   // Section 15: Issues Summary (from checks)
@@ -307,43 +259,7 @@ function displaySystemSection(system: HealthAssessment['data']['system']): void 
 }
 
 /**
- * Section 2: Performance Snapshot
- */
-function displayPerformanceSection(): void {
-  const snapshot = getPerformanceSnapshot();
-
-  // Determine health based on memory usage
-  const heapPercent = (snapshot.memory.heapUsed / snapshot.memory.heapTotal) * 100;
-  const isHealthy = heapPercent < 70;
-  const indicator = isHealthy ? c('green', '✓') : c('yellow', '⚠');
-
-  console.log(`  ${indicator} ${bold('Performance')}`);
-  console.log(`    ${dim('Memory RSS:')}    ${formatSize(snapshot.memory.rss)}`);
-  console.log(`    ${dim('Heap Used:')}     ${formatSize(snapshot.memory.heapUsed)} / ${formatSize(snapshot.memory.heapTotal)} ${dim(`(${heapPercent.toFixed(1)}%)`)}`);
-  console.log(`    ${dim('External:')}      ${formatSize(snapshot.memory.external)}`);
-
-  if (snapshot.eventLoop.utilization > 0) {
-    console.log(`    ${dim('Event Loop:')}    ${(snapshot.eventLoop.utilization * 100).toFixed(1)}% utilized`);
-  }
-
-  console.log(`    ${dim('Active Handles:')} ${snapshot.handles.activeHandles}`);
-
-  // Show handle types if interesting
-  const interestingTypes = Object.entries(snapshot.handles.handleTypes)
-    .filter(([type]) => !['WriteStream', 'ReadStream', 'TTY'].includes(type))
-    .slice(0, 3);
-
-  if (interestingTypes.length > 0) {
-    const typeStr = interestingTypes.map(([t, c]) => `${t}: ${c}`).join(', ');
-    console.log(`    ${dim('Handle Types:')}   ${dim(typeStr)}`);
-  }
-
-  console.log(`    ${dim('Run')} ${c('cyan', 'node-doctor perf')} ${dim('for detailed analysis')}`);
-  console.log();
-}
-
-/**
- * Section 3: Detected Managers
+ * Section 2: Detected Managers
  */
 function displayManagersSection(managers: DetectedManager[], activeManagers: string[]): void {
   const managersInPath = new Set(activeManagers);
@@ -450,7 +366,7 @@ function displayPathSection(foundNodes: FoundNode[]): void {
 }
 
 /**
- * Section 4: Security (NEW)
+ * Section 4: Security
  */
 function displaySecuritySection(
   security: HealthAssessment['data']['security'],
@@ -530,7 +446,7 @@ function displaySecuritySection(
 }
 
 /**
- * Section 5: Port Status (NEW)
+ * Section 5: Port Status
  */
 function displayPortSection(portProcesses: HealthAssessment['data']['portProcesses']): void {
   const hasProcesses = portProcesses.length > 0;
