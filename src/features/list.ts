@@ -4,7 +4,7 @@
 
 import { c, bold, dim } from '../colors.js';
 import { clearScreen, formatSize, deleteDirRecursive, isWindows } from '../utils.js';
-import { select, confirm, search } from '../prompts.js';
+import { select, confirm, search, BACK } from '../prompts.js';
 import { getAllInstallations, scanAll } from '../detectors/index.js';
 import { printHeader } from '../ui.js';
 import { checkIntegrity, verifyIntegrity } from './integrity.js';
@@ -113,50 +113,62 @@ export async function listAllVersionsInteractive(results: ScanResults): Promise<
     }
 
     console.log(`  ${dim('Type to search versions, or press Enter to browse')}`);
+    console.log(`  ${dim('Esc to go back')}`);
     if (isWindows) {
       console.log(`  ${dim('Integrity:')} ${c('green', '✓')}${dim('=verified')} ${c('red', '✗')}${dim('=mismatch')} ${c('red', '?')}${dim('=error')}`);
     }
     console.log();
 
-    const choice = await search({
-      message: 'Search versions:',
-      pageSize: 15,
-      source: async (term: string | undefined) => {
-        const searchTerm = (term || '').toLowerCase();
-        
-        // Always include back option at top
-        const results: Array<{ name: string; value: VersionChoice }> = [
-          { name: `${c('yellow', '←')} Back to menu`, value: { action: 'back' } }
-        ];
-        
-        // Filter versions based on search term
-        const filtered = searchTerm 
-          ? flatInstallations.filter(item => 
-              item.inst.version.toLowerCase().includes(searchTerm) ||
-              item.inst.detectorDisplayName.toLowerCase().includes(searchTerm) ||
-              item.inst.detectorName.toLowerCase().includes(searchTerm)
-            )
-          : flatInstallations;
-        
-        for (const item of filtered) {
-          results.push({
-            name: item.displayName,
-            value: { action: 'select', inst: item.inst }
-          });
-        }
-        
-        return results;
-      },
-      theme: {
-        prefix: '  ',
-        style: {
-          highlight: (text: string) => c('cyan', text),
-          message: (text: string) => bold(text),
+    let choice: VersionChoice | typeof BACK;
+    try {
+      choice = await search({
+        message: 'Search versions:',
+        pageSize: 15,
+        source: async (term: string | undefined) => {
+          const searchTerm = (term || '').toLowerCase();
+          
+          // Always include back option at top
+          const searchResults: Array<{ name: string; value: VersionChoice }> = [
+            { name: `${c('yellow', '←')} Back to menu`, value: { action: 'back' } }
+          ];
+          
+          // Filter versions based on search term
+          const filtered = searchTerm 
+            ? flatInstallations.filter(item => 
+                item.inst.version.toLowerCase().includes(searchTerm) ||
+                item.inst.detectorDisplayName.toLowerCase().includes(searchTerm) ||
+                item.inst.detectorName.toLowerCase().includes(searchTerm)
+              )
+            : flatInstallations;
+          
+          for (const item of filtered) {
+            searchResults.push({
+              name: item.displayName,
+              value: { action: 'select', inst: item.inst }
+            });
+          }
+          
+          return searchResults;
         },
-      },
-    }) as VersionChoice;
+        theme: {
+          prefix: '  ',
+          style: {
+            highlight: (text: string) => c('cyan', text),
+            message: (text: string) => bold(text),
+          },
+        },
+      }) as VersionChoice;
+    } catch (err) {
+      // Handle ESC/Ctrl+C
+      if (err && typeof err === 'object' && 'name' in err && 
+          (err.name === 'ExitPromptError' || err.name === 'AbortPromptError' || err.name === 'CancelPromptError')) {
+        return results;
+      }
+      throw err;
+    }
 
-    if (choice.action === 'back') {
+    // Handle ESC or back
+    if (choice === BACK || (choice as VersionChoice).action === 'back') {
       return results;
     }
 
@@ -223,6 +235,8 @@ async function showVersionMenu(inst: AggregatedInstallation, results: ScanResult
     value: 'back',
   });
 
+  console.log(`  ${dim('Esc to go back')}`);
+
   const action = await select({
     message: 'What would you like to do?',
     choices: menuChoices,
@@ -233,7 +247,12 @@ async function showVersionMenu(inst: AggregatedInstallation, results: ScanResult
         message: (text: string) => bold(text),
       },
     },
-  }) as string;
+  });
+
+  // Handle ESC or back
+  if (action === BACK || action === 'back') {
+    return results;
+  }
 
   if (action === 'verify') {
     await verifyIntegrity(inst);

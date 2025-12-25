@@ -569,26 +569,35 @@ export function displaySnapshot(snapshot: PerformanceSample): void {
   console.log(c('cyan', '━'.repeat(66)));
   console.log();
 
-  // Memory
-  console.log(`  ${bold('Memory')}`);
-  console.log(`    ${dim('RSS:')}        ${formatSize(snapshot.memory.rss)}`);
-  console.log(`    ${dim('Heap Total:')} ${formatSize(snapshot.memory.heapTotal)}`);
-  console.log(`    ${dim('Heap Used:')}  ${formatSize(snapshot.memory.heapUsed)}`);
-  console.log(`    ${dim('External:')}   ${formatSize(snapshot.memory.external)}`);
-  console.log();
-
-  // Event Loop
-  console.log(`  ${bold('Event Loop')}`);
-  if (snapshot.eventLoop.utilization > 0) {
-    console.log(`    ${dim('Utilization:')}  ${(snapshot.eventLoop.utilization * 100).toFixed(1)}%`);
-    console.log(`    ${dim('Idle:')}         ${snapshot.eventLoop.idlePercent.toFixed(1)}%`);
-  } else {
-    console.log(`    ${dim('Utilization:')}  ${dim('(not available)')}`);
+  // Memory Section
+  const heapPercent = (snapshot.memory.heapUsed / snapshot.memory.heapTotal) * 100;
+  const memIcon = heapPercent < 70 ? c('green', '✓') : c('yellow', '⚠');
+  console.log(`  ${memIcon} ${bold('Memory')}`);
+  console.log(`    ${dim('RSS:')}          ${formatSize(snapshot.memory.rss)}`);
+  console.log(`    ${dim('Heap Total:')}   ${formatSize(snapshot.memory.heapTotal)}`);
+  console.log(`    ${dim('Heap Used:')}    ${formatSize(snapshot.memory.heapUsed)} ${dim(`(${heapPercent.toFixed(1)}%)`)}`);
+  console.log(`    ${dim('External:')}     ${formatSize(snapshot.memory.external)}`);
+  if (snapshot.memory.arrayBuffers > 0) {
+    console.log(`    ${dim('ArrayBuffers:')} ${formatSize(snapshot.memory.arrayBuffers)}`);
   }
   console.log();
 
-  // Handles
-  console.log(`  ${bold('Active Resources')}`);
+  // CPU & Event Loop Section
+  const hasUtilization = snapshot.eventLoop.utilization > 0;
+  const cpuIcon = !hasUtilization || snapshot.eventLoop.utilization < 0.7 ? c('green', '✓') : c('yellow', '⚠');
+  console.log(`  ${cpuIcon} ${bold('CPU & Event Loop')}`);
+  if (hasUtilization) {
+    const utilPercent = snapshot.eventLoop.utilization * 100;
+    const utilColor = utilPercent > 70 ? 'yellow' : 'green';
+    console.log(`    ${dim('Utilization:')}  ${c(utilColor, `${utilPercent.toFixed(1)}%`)}`);
+    console.log(`    ${dim('Idle:')}         ${snapshot.eventLoop.idlePercent.toFixed(1)}%`);
+  } else {
+    console.log(`    ${dim('Utilization:')}  ${dim('(requires sampling - run without --snapshot)')}`);
+  }
+  console.log();
+
+  // Active Resources Section
+  console.log(`  ${c('green', '✓')} ${bold('Active Resources')}`);
   console.log(`    ${dim('Handles:')}   ${snapshot.handles.activeHandles}`);
   console.log(`    ${dim('Requests:')}  ${snapshot.handles.activeRequests}`);
   if (Object.keys(snapshot.handles.handleTypes).length > 0) {

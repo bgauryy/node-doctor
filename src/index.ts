@@ -17,7 +17,7 @@
 
 import { c, bold, dim } from './colors.js';
 import { clearScreen } from './utils.js';
-import { loadInquirer, select, Separator } from './prompts.js';
+import { loadInquirer, select, Separator, BACK } from './prompts.js';
 import { scanAll } from './detectors/index.js';
 import { printHeader, printWelcome, printSummary } from './ui.js';
 import { listAllVersionsInteractive } from './features/list.js';
@@ -27,11 +27,38 @@ import { showProjectVersionFiles } from './features/project.js';
 import { showGlobalPackages } from './features/globals.js';
 import { showPortExorcist } from './features/port-exorcist.js';
 import { runCleanup } from './features/cleanup.js';
+import { runPerformanceAssessment, displayPerformanceSummary } from './features/performance.js';
 import { Spinner } from './spinner.js';
 import { runCLI } from './cli/index.js';
 import type { ScanResults } from './types/index.js';
 
-type MenuChoice = 'list' | 'doctor' | 'heal' | 'cleanup' | 'project' | 'globals' | 'disk' | 'refresh' | 'exit';
+type MenuChoice = 'list' | 'doctor' | 'perf' | 'heal' | 'cleanup' | 'project' | 'globals' | 'disk' | 'refresh' | 'exit';
+
+// ─────────────────────────────────────────────────────────────
+// Performance Interactive
+// ─────────────────────────────────────────────────────────────
+
+async function showPerformanceInteractive(): Promise<void> {
+  clearScreen();
+  console.log();
+  console.log(`  ${c('cyan', '⏳')} Collecting performance metrics for 3 seconds...`);
+
+  const summary = await runPerformanceAssessment({
+    duration: 3000,
+    sampleInterval: 100,
+  });
+
+  clearScreen();
+  displayPerformanceSummary(summary);
+
+  // Wait for user to continue
+  console.log(`  ${dim('Esc to go back')}`);
+  await select({
+    message: 'Press Enter to return to menu...',
+    choices: [{ name: '← Back to menu', value: 'back' }],
+    theme: { prefix: '  ' },
+  });
+}
 
 // ─────────────────────────────────────────────────────────────
 // Interactive Menu
@@ -39,6 +66,7 @@ type MenuChoice = 'list' | 'doctor' | 'heal' | 'cleanup' | 'project' | 'globals'
 
 async function showMainMenu(): Promise<MenuChoice> {
   console.log();
+  console.log(`  ${dim('Esc to exit')}`);
 
   const choice = await select({
     message: 'What would you like to do?',
@@ -52,6 +80,11 @@ async function showMainMenu(): Promise<MenuChoice> {
         name: '🏥 Doctor',
         value: 'doctor',
         description: 'Diagnose environment, PATH priority, security, and port issues',
+      },
+      {
+        name: '📈 Performance',
+        value: 'perf',
+        description: 'Analyze CPU, memory, and event loop metrics',
       },
       {
         name: '💀 Port Exorcist',
@@ -99,9 +132,14 @@ async function showMainMenu(): Promise<MenuChoice> {
         message: (text: string) => bold(text),
       },
     },
-  }) as MenuChoice;
+  });
 
-  return choice;
+  // Handle ESC (BACK symbol)
+  if (choice === BACK) {
+    return 'exit';
+  }
+
+  return choice as MenuChoice;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -156,6 +194,10 @@ async function runInteractiveMode(): Promise<void> {
 
       case 'doctor':
         await runDoctor(results);
+        break;
+
+      case 'perf':
+        await showPerformanceInteractive();
         break;
 
       case 'heal':

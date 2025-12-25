@@ -215,6 +215,7 @@ export async function showProjectVersionFiles(results: ScanResults): Promise<voi
   }
 
   console.log();
+  console.log(`  ${dim('Esc to go back')}`);
   await select({
     message: 'Press Enter to continue...',
     choices: [{ name: '← Back to menu', value: 'back' }],
@@ -333,7 +334,9 @@ function getNpmVersion(): string | null {
     if (result.status === 0 && result.stdout) {
       return result.stdout.trim();
     }
-  } catch {}
+  } catch {
+    // npm command failed - not installed or timed out
+  }
   return null;
 }
 
@@ -347,7 +350,9 @@ function getYarnVersion(): string | null {
     if (result.status === 0 && result.stdout) {
       return result.stdout.trim();
     }
-  } catch {}
+  } catch {
+    // yarn command failed - not installed or timed out
+  }
   return null;
 }
 
@@ -361,7 +366,9 @@ function getPnpmVersion(): string | null {
     if (result.status === 0 && result.stdout) {
       return result.stdout.trim();
     }
-  } catch {}
+  } catch {
+    // pnpm command failed - not installed or timed out
+  }
   return null;
 }
 
@@ -422,12 +429,16 @@ export function checkNodeModulesHealth(projectDir: string = process.cwd()): Node
         try {
           const scopedPackages = fs.readdirSync(scopePath);
           packageCount += scopedPackages.filter(p => !p.startsWith('.')).length;
-        } catch {}
+        } catch {
+          // Scoped package directory unreadable - skip
+        }
       } else {
         packageCount++;
       }
     }
-  } catch {}
+  } catch {
+    // node_modules directory unreadable - permission denied
+  }
 
   // Check if orphaned (no lockfile)
   const lockfile = checkLockfileIntegrity(projectDir);
