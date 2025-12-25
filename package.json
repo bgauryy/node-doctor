@@ -1,6 +1,6 @@
 {
   "name": "node-doctor",
-  "version": "1.1.",
+  "version": "1.1.0",
   "description": "🔍 Interactive CLI to scan, diagnose, and fix Node.js environment issues across 20+ version managers",
   "type": "module",
   "main": "out/node-doctor.js",
